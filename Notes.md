@@ -92,11 +92,6 @@ root@x0c0r0b0:~# /usr/sbin/lldptool set-tlv -r -V CrayNet enableTx=yes network='
 tcpdump -i hsn0 -nn -s 1500 -c 10 -X ether proto 0x88cc
 ```
 
-
-```bash
-#export HPE_GITHUB_TOKEN=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
-```
-
 ## SITF Repo:
 
 [https://github.hpe.com/hpe/hpc-lonesshot-sitf-tests/tree/master/tests/40_net_protocols](https://github.hpe.com/hpe/hpc-lonesshot-sitf-tests/tree/master/tests/40_net_protocols)
