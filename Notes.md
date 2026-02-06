@@ -699,3 +699,107 @@ ip -s link show ros0
 **To remove ->** `iptables -D OUTPUT 3`
 
 --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+## Native Memory Tracking
+
+**Add these args to the FA java:**
+`-XX:+UnlockDiagnosticVMOptions -XX:NativeMemoryTracking=summary`
+
+**Shell command to monitor memory:**
+```bash
+root@x0c0r0b0:/opt/slingshot# PID=$(pgrep -f slingshot-fabric-manager)
+root@x0c0r0b0:/opt/slingshot# grep -E 'VmRSS|RssAnon|VmData|Threads' /proc/$PID/status > FA-T0 && sleep 900 && grep -E 'VmRSS|RssAnon|VmData|Threads' /proc/$PID/status > FA-T15
+```
+
+**Memory Output Example:**
+```bash
+root@x0c0r0b0:/opt/slingshot# cat FA-T0
+VmRSS:    361152 kB
+RssAnon:  317888 kB
+VmData:   568892 kB
+Threads:  69
+```
+
+> [!NOTE] 
+> `jcmd 10258 VM.native_memory detail > NTM-T60`
+> 
+> **Here the RssAnon memory -> is anonymous memory which is outside of JVM's Garbage Collector (Mostly from Native library)**
+
+
+## How to run ASAN instrumented FA
+-> [https://jira-pro.it.hpe.com:8443/browse/SSHOTCP-8820](https://jira-pro.it.hpe.com:8443/browse/SSHOTCP-8820)
+
+**Steps to run ASAN-instrumented Fabric Agent (FA):**
+
+1. **Clone hms_scimage** (release/3.0 branch) -> [https://github.hpe.com/hpe/hpc-hms_ec-hms-scimage/tree/release/slingshot-3.0](https://github.hpe.com/hpe/hpc-hms_ec-hms-scimage/tree/release/slingshot-3.0)
+2. **Instrument the required native libraries** (e.g., librossdk2, routingJNI, etc.) using **ASAN flags**.
+   Refer: [https://github.hpe.com/hpe/hpc-sshot-rosetta2-sdk/pull/867](https://github.hpe.com/hpe/hpc-sshot-rosetta2-sdk/pull/867)
+3. **Build all the libraries and generate the ITB{}**
+4. Upgrade/Downgrade the **Rosetta-2 fabric** to **3.0.0{}**
+5. Load the ITB on the switch *(Strictly Rosetta-2 hardware – not supported on simulator)*
+6. **Perform the fabric bring-up on the FMN** (regular bring-up)
+7. Stop the FA process on the switch:
+   ```bash
+   systemctl stop fabric-agent-host
+   ```
+8. Add the following lines to the FA service file (`/lib/systemd/system/fabric-agent-host.service`):
+   ```ini
+   [Service]
+   Environment=LD_PRELOAD=/lib/aarch64-linux-gnu/libasan.so.6
+   Environment=ASAN_OPTIONS=detect_leaks=1:abort_on_error=1
+   Environment=LSAN_OPTIONS=verbosity=1
+   ```
+9. **Reload systemd and restart FA:**
+   ```bash
+   systemctl daemon-reload
+   systemctl restart fabric-agent-host
+   ```
+   * The fabric-agent-host journalctl logs will now print **ASAN verbose output**.
+
+### Observation from testing:
+In my testing, ASAN reports native memory leaks shortly after FA startup (approximately in **43 seconds**). There may be additional leaks in other libraries or SDK during later stages of fabric bring-up; however, ASAN aborts the FA process early because it detects **significant native leaks during startup itself**.
+
+
+## Debugging / Verification Steps (To confirm the loaded ITB is properly instrumented)
+
+**1. Verify ASAN is linked into the SDK library (Or whichever is/are instrumented)**
+```bash
+ldd /usr/lib/aarch64-linux-gnu/librossdk2.so | grep asan
+# Expected output should contain:
+# libasan.so.6 => /lib/aarch64-linux-gnu/libasan.so.6
+```
+
+**2. Verify Fabric Agent (Java) process is running (Check after starting the FA with new service file)**
+```bash
+pgrep -a java
+```
+
+**3. Verify SDK library is loaded by FA using /proc**
+```bash
+PID=$(pgrep -f slingshot-fabric-manager)
+cat /proc/$PID/maps | grep librossdk2
+
+# This confirms the ASAN-instrumented librossdk2.so is loaded into the FA JVM process.
+# (Optional – list all loaded shared libraries)
+cat /proc/$PID/maps | grep '\.so'
+```
+
+**4. Verify ASAN runtime initialization**
+```bash
+journalctl -u fabric-agent-host | grep AddressSanitizer
+# Expected messages include:
+# AddressSanitizer Init done
+# libc interceptors initialized
+```
+
+**5. Observe ASAN leak summary**
+**Example:**
+```
+SUMMARY: AddressSanitizer: <bytes> leaked in <allocations>
+```
+
+**Expected behavior**
+* FA process aborts after ASAN detects leaks (abort_on_error=1)
+
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
