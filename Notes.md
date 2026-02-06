@@ -94,7 +94,7 @@ tcpdump -i hsn0 -nn -s 1500 -c 10 -X ether proto 0x88cc
 
 
 ```bash
-export HPE_GITHUB_TOKEN=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
+#export HPE_GITHUB_TOKEN=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
 ```
 
 ## SITF Repo:
