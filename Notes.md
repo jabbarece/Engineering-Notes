@@ -417,8 +417,8 @@ Command to run build on the above container:
 		root@x3000c0r40b0:/sonic-swss-common/tests# redis-cli CONFIG SET notify-keyspace-events "KEA"
 		OK
 		root@x3000c0r40b0:/sonic-swss-common/tests# redis-cli CONFIG GET notify-keyspace-events
-		1) "notify-keyspace-events"
-		2) "AKE"
+		3) "notify-keyspace-events"
+		4) "AKE"
 ```
 
 	If the docker-compose build fails, run below
@@ -801,5 +801,30 @@ SUMMARY: AddressSanitizer: <bytes> leaked in <allocations>
 **Expected behavior**
 * FA process aborts after ASAN detects leaks (abort_on_error=1)
 
---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+**How to measure REDIS channel message per second**
+```
+root@x3000c0r6b0:~# redis-cli SUBSCRIBE MAC_LEARN \
+| awk '
+  /^message/ { count++ }
+  {
+    now = systime()
+    if (start == 0) start = now
+    if (now - start >= 1) {
+      printf "Messages per second: %d\n", count
+      count = 0
+      start = now
+    }
+  }
+'
+
+Messages per second: 35
+Messages per second: 34
+Messages per second: 34
+Messages per second: 34
+Messages per second: 34
+```
+
+
+**CT Build Links**
+mac-agent -> https://cje.hpc.amslabs.hpecorp.net/teams-slingshot-team/job/slingshot-team/job/r2-switch-controller/job/hpc-sshot-mac-agent/view/change-requests/job/PR-58/
